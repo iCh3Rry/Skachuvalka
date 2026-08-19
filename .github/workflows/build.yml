@@ -41,15 +41,15 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $key = "${{ secrets.SIGNING_KEY }}"
-          $key -replace "`r`n|`n","" | Set-Content -NoNewline -Path "sign/key.rsa"
-          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.SIGNING_KEY_PASSWORD }}" >> $env:GITHUB_ENV
+          $key = $key -replace "`r","" -replace "`n","" -replace "\s",""
+          Set-Content -Path "sign/key.rsa" -Value $key -NoNewline -Encoding UTF8
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.SIGNING_KEY_PASSWORD }}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          echo "TAURI_SIGNING_PRIVATE_KEY=$key" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Збірка (NSIS + MSI )
         run: pnpm tauri build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
 
       - name: Додати артефакти до релізу
         uses: softprops/action-gh-release@v2
