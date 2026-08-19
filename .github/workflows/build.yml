@@ -25,7 +25,9 @@ jobs:
 
       - name: pnpm
         uses: pnpm/action-setup@v4
-
+        with:
+          version: 10
+          
       - name: Завантажити yt-dlp для Windows
         run: |
           Invoke-WebRequest -Uri https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe -OutFile src-tauri/resources/yt-dlp-bundled.exe
@@ -77,7 +79,9 @@ jobs:
 
       - name: pnpm
         uses: pnpm/action-setup@v4
-
+        with:
+          version: 10
+          
       - name: Завантажити yt-dlp для macOS (universal)
         run: |
           curl -L -o src-tauri/resources/yt-dlp-bundled \
