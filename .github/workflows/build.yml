@@ -35,7 +35,7 @@ jobs:
       - name: Встановити залежності
         run: |
           pnpm install
-          pnpm exec tauri add updater dialog process opener
+          pnpm add @tauri-apps/plugin-updater @tauri-apps/plugin-dialog @tauri-apps/plugin-process @tauri-apps/plugin-opener
 
       - name: Вставити ключ підпису
         run: |
@@ -91,7 +91,7 @@ jobs:
       - name: Встановити залежності
         run: |
           pnpm install
-          pnpm exec tauri add updater dialog process opener
+          pnpm add @tauri-apps/plugin-updater @tauri-apps/plugin-dialog @tauri-apps/plugin-process @tauri-apps/plugin-opener
 
       - name: Вставити ключ підпису
         run: |
