@@ -27,7 +27,7 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 10
-          
+
       - name: Завантажити yt-dlp для Windows
         run: |
           Invoke-WebRequest -Uri https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe -OutFile src-tauri/resources/yt-dlp-bundled.exe
@@ -39,11 +39,10 @@ jobs:
 
       - name: Вставити ключ підпису
         run: |
-          echo "$env:SIGNING_KEY" > sign/key.rsa
-          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$env:SIGNING_KEY_PASSWORD" >> $env:GITHUB_ENV
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          $ErrorActionPreference = "Stop"
+          $key = "${{ secrets.SIGNING_KEY }}"
+          $key -replace "`r`n|`n","" | Set-Content -NoNewline -Path "sign/key.rsa"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.SIGNING_KEY_PASSWORD }}" >> $env:GITHUB_ENV
 
       - name: Збірка (NSIS + MSI )
         run: pnpm tauri build
@@ -82,7 +81,7 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 10
-          
+
       - name: Завантажити yt-dlp для macOS (universal)
         run: |
           curl -L -o src-tauri/resources/yt-dlp-bundled \
@@ -96,15 +95,12 @@ jobs:
 
       - name: Вставити ключ підпису
         run: |
-          mkdir -p sign
-          echo "$SIGNING_KEY" > sign/key.rsa
-          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$SIGNING_KEY_PASSWORD" >> $GITHUB_ENV
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          key="${{ secrets.SIGNING_KEY }}"
+          key="$(printf '%s' "$key" | tr -d '\n\r' )"
+          printf '%s' "$key" > sign/key.rsa
 
       - name: Збірка DMG
-        run: pnpm tauri build --target universal-apple-darwin
+        run: pnpm tauri build --target universal-apple-darwin --no-sign
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_KEY }}
@@ -114,5 +110,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/dmg/*.dmg.sig
+            src-tauri/target/*/release/bundle/dmg/*.dmg
+            src-tauri/target/*/release/bundle/dmg/*.dmg.sig
