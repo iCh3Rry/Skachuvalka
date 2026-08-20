@@ -204,6 +204,6 @@ jobs:
           print(json.dumps(manifest))
           PYEOF
           sed -i "s/\$(date -u +%Y-%m-%dT%H:%M:%SZ)/$(date -u +%Y-%m-%dT%H:%M:%SZ)/" /tmp/ra/latest.json
-          gh api POST "/repos/${GITHUB_REPOSITORY}/releases/$REL/uploads?name=latest.json" \
+          gh api -X POST "/repos/${GITHUB_REPOSITORY}/releases/$REL/uploads?name=latest.json" \
             --header "Content-Type: application/octet-stream" \
             --input /tmp/ra/latest.json
