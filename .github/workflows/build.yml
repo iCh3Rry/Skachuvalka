@@ -152,7 +152,18 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
           name: videograb-macos
-          path: src-tauri/target/*/release/bundle/dmg/*.dmg
+          path: |
+            src-tauri/target/*/release/bundle/dmg/*.dmg
+            src-tauri/target/*/release/bundle/macos/*.app.tar.gz
+
+      - name: Підписати DMG тим самим ключем (для updater)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        run: |
+          DMG=$(ls src-tauri/target/*/release/bundle/dmg/*.dmg | head -1)
+          printf '%s\n' "$SIGNING_KEY" > /tmp/sg.key
+          minisign -S -m "$DMG" -s /tmp/sg.key -x "${DMG}.sig"
 
       - name: Додати DMG до релізу
         if: startsWith(github.ref, 'refs/tags/')
@@ -160,7 +171,9 @@ jobs:
         with:
           files: |
             src-tauri/target/*/release/bundle/dmg/*.dmg
+            src-tauri/target/*/release/bundle/dmg/*.dmg.sig
             src-tauri/target/*/release/bundle/macos/*.tar.gz.sig
+            src-tauri/target/*/release/bundle/macos/*.app.tar.gz
 
   publish-updater:
     if: startsWith(github.ref, 'refs/tags/')
@@ -200,15 +213,15 @@ jobs:
               # The Tauri updater expects the `signature` field to be a
               # base64-encoded minisign text signature, so encode it here.
               return base64.b64encode(text.strip().encode()).decode()
-          darwin_url = "https://github.com/iCh3Rry/Skachuvalka/releases/download/v"+ver+"/VideoGrab_"+ver+"_universal.dmg"
+          # macOS updater: verify_signature runs on downloaded bytes and then
+          # install_inner expects a .app.tar.gz (gzip+tar), so the darwin URL
+          # must point to the .app.tar.gz asset signed as VideoGrab.app.tar.gz.sig
+          darwin_url = "https://github.com/iCh3Rry/Skachuvalka/releases/download/v"+ver+"/VideoGrab.app.tar.gz"
           manifest = {
             "version": ver,
             "notes": "",
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
-              # The build is a universal DMG, but the Tauri updater on macOS
-              # (Apple Silicon) looks for darwin-aarch64-app / darwin-aarch64.
-              # Expose the same universal DMG under all expected keys.
               "darwin-aarch64-app": {"signature": sig('/tmp/ra/app.sig'), "url": darwin_url},
               "darwin-aarch64": {"signature": sig('/tmp/ra/app.sig'), "url": darwin_url},
               "darwin-universal": {"signature": sig('/tmp/ra/app.sig'), "url": darwin_url},
