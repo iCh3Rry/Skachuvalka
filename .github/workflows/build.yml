@@ -62,8 +62,8 @@ jobs:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          echo "${{ env.SIGNING_KEY }}" > sign/key.rsa
-          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ env.SIGNING_KEY_PASSWORD }}" >> $env:GITHUB_ENV
+          Set-Content -Path sign/key.rsa -Value $env:SIGNING_KEY -Encoding Ascii
+          Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$env:SIGNING_KEY_PASSWORD" -Encoding Ascii
 
       - name: Збірка (NSIS + MSI)
         run: pnpm tauri build
@@ -136,7 +136,7 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
           mkdir -p sign
-          echo "$SIGNING_KEY" > sign/key.rsa
+          printf '%s\n' "$SIGNING_KEY" > sign/key.rsa
           echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$SIGNING_KEY_PASSWORD" >> $GITHUB_ENV
 
       - name: Збірка DMG (без підпису Apple, поки немає сертифікатів)
