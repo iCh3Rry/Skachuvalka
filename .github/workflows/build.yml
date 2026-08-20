@@ -21,6 +21,7 @@ name: Build VideoGrab
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   build-windows:
@@ -124,9 +125,6 @@ jobs:
           mkdir -p videograb/sign
           echo "$SIGNING_KEY" > videograb/sign/key.rsa
           echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$SIGNING_KEY_PASSWORD" >> $GITHUB_ENV
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
 
       - name: Збірка DMG
         run: pnpm tauri build --target universal-apple-darwin
