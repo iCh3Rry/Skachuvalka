@@ -23,7 +23,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkyRkNEMEQ0REVDRTkyQzcKUldUSGtzN2UxTkQ4a2tTVWpYdllUL0N2K2FwMHoxQzd0WGFmVmJldjdkelBsZExtUXNYVmtDTkkK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZGNUVBRDZFQkRDMEEwRDEKUldUUm9NQzlicTFlYitiZllIR243NEhuMnFqVjFKMWdsanFyV01mS3UySlQxL1lVWCtGQnJERmgK",
       "endpoints": [
         "https://YOUR-UPDATE-SERVER.com/updates/latest.json"
       ],
