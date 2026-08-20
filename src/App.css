@@ -245,3 +245,150 @@ button.secondary:disabled {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* v1.0.6: compact layout + settings modal */
+.compact-header {
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px !important;
+}
+
+.compact-header .header-left h1 {
+  font-size: 20px;
+  margin-bottom: 2px;
+}
+
+.compact-header .header-left .subtitle {
+  font-size: 12px;
+}
+
+.settings-btn {
+  flex-shrink: 0;
+}
+
+.compact-main {
+  padding-top: 2px;
+}
+
+.compact-card {
+  padding: 12px !important;
+  margin-bottom: 12px !important;
+}
+
+.compact-card .url-input {
+  margin-bottom: 8px;
+}
+
+.compact-card .row {
+  margin-bottom: 8px;
+}
+
+.compact-card button.primary {
+  margin-top: 0;
+}
+
+.compact-card .path-line {
+  margin: 0;
+  flex: 1;
+}
+
+.queue-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.qi-thumb img {
+  width: 64px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--bg);
+}
+
+.qi-thumb:empty {
+  display: none;
+}
+
+.qi-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Settings modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  width: min(480px, 92vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tabs button {
+  flex: 1;
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.tabs button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.settings-section p {
+  margin: 0;
+}
+
+.settings-section .muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings-section button.primary {
+  margin-top: 0;
+  align-self: flex-start;
+}

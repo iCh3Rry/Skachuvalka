@@ -433,3 +433,106 @@ async fn download_latest_ytdlp_to(
     }
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Thumbnails & persistent settings
+// ---------------------------------------------------------------------------
+
+/// Read the thumbnail image for a given YouTube video id and return it as
+/// base64-encoded data. yt-dlp writes {data_dir}/media/{id}.jpg during the
+/// download (see downloader::app_thumb_dir).
+#[tauri::command]
+pub async fn thumbnail_for(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<String, String> {
+    let base = crate::data_dir(&app);
+    let mut target: Option<PathBuf> = None;
+    for ext in &["jpg", "jpeg", "png", "webp"] {
+        let p = base.join("media").join(format!("{id}.{ext}"));
+        if p.exists() {
+            target = Some(p);
+            break;
+        }
+    }
+    let Some(path) = target else {
+        return Err("no thumbnail".into());
+    };
+    let bytes = tokio::fs::read(&path).await.map_err(|e| e.to_string())?;
+    Ok(base64_encode(&bytes))
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[(triple >> 18 & 63) as usize] as char);
+        out.push(ALPHABET[(triple >> 12 & 63) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[(triple >> 6 & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[(triple & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+/// Load the last chosen download directory (persisted across launches).
+#[tauri::command]
+pub async fn load_last_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let settings = settings_path(&app);
+    let content = match tokio::fs::read_to_string(&settings).await {
+        Ok(c) => c,
+        Err(_) => return Ok(String::new()),
+    };
+    if let Ok(map) = serde_json::from_str::<serde_json::Value>(&content) {
+        if let Some(dir) = map.get("last_dir").and_then(|v| v.as_str()) {
+            return Ok(dir.to_string());
+        }
+    }
+    Ok(String::new())
+}
+
+/// Persist the chosen download directory so it is restored on next launch.
+#[tauri::command]
+pub async fn save_last_dir(
+    app: tauri::AppHandle,
+    dir: String,
+) -> Result<(), String> {
+    let settings = settings_path(&app);
+    tokio::fs::create_dir_all(settings.parent().unwrap())
+        .await
+        .map_err(|e| e.to_string())?;
+    let content = match tokio::fs::read_to_string(&settings).await {
+        Ok(c) => c,
+        Err(_) => "{}".into(),
+    };
+    let mut map: serde_json::Value =
+        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}));
+    map["last_dir"] = serde_json::json!(dir);
+    tokio::fs::write(&settings, map.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// {data_dir}/settings.json
+fn settings_path(app: &tauri::AppHandle) -> PathBuf {
+    crate::data_dir(app).join("settings.json")
+}
+
+/// Returns the app version from the bundle (shown in Settings → About).
+#[tauri::command]
+pub fn get_app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}

@@ -16,6 +16,8 @@ pub struct DownloadItem {
     pub quality: String,   // "best" | "1080" | "720" | "480" | "mp3" | "m4a"
     pub save_dir: String,
     pub status: String,    // pending | running | done | error
+    pub stage: String,     // info | downloading | merging
+    pub media_id: Option<String>,
     pub title: Option<String>,
     pub progress: f64,     // 0..100
     pub speed: Option<String>,
@@ -56,11 +58,15 @@ pub fn run() {
             downloader::get_queue,
             downloader::clear_queue,
             downloader::remove_item,
+            yt_dlp::thumbnail_for,
             yt_dlp::check_ytdlp_update,
             yt_dlp::update_ytdlp,
             yt_dlp::get_ytdlp_status,
             yt_dlp::set_auto_check,
             yt_dlp::ytdlp_debug_info,
+            yt_dlp::load_last_dir,
+            yt_dlp::save_last_dir,
+            yt_dlp::get_app_version,
         ])
         .setup(|app| {
             // Initialize bundled yt-dlp if missing, then optionally check for yt-dlp updates.
@@ -124,3 +130,4 @@ pub fn ffmpeg_path(app: &tauri::AppHandle) -> PathBuf {
         dir.join("ffmpeg")
     }
 }
+
