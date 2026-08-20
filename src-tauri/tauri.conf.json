@@ -23,9 +23,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZGNUVBRDZFQkRDMEEwRDEKUldUUm9NQzlicTFlYitiZllIR243NEhuMnFqVjFKMWdsanFyV01mS3UySlQxL1lVWCtGQnJERmgK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgM0U1NTU3OTBGNkZGMkQ2OQpSV1JwTGYvMmtGZFZQbExoMkZrbFhwL1liQXJnaTFoOTYzNXE5dWZQWFBBcSsxdWxPQjJLb2swYQo=",
       "endpoints": [
-        "https://YOUR-UPDATE-SERVER.com/updates/latest.json"
+        "https://github.com/iCh3Rry/Skachuvalka/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"
