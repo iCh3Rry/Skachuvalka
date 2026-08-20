@@ -199,18 +199,18 @@ jobs:
           echo "$SIGNING_KEY" | base64 -d > /tmp/sg.key
           # minisign запитує пароль через tty, тому відповідаємо через expect
           python3 - "$DMG" "$SIGNING_KEY_PASSWORD" <<'PYEOF'
-import base64, pexpect, sys
-dmg, password = sys.argv[1], sys.argv[2]
-key_text = base64.b64decode(open('/tmp/sg.key').read().strip()).decode()
-open('/tmp/sg_plain.key', 'w').write(key_text)
-child = pexpect.spawn('minisign', ['-S', '-s', '/tmp/sg_plain.key', '-x', dmg + '.sig', '-m', dmg])
-child.expect('[Pp]assword')
-child.sendline(password)
-child.expect(pexpect.EOF)
-if child.wait() != 0:
-    sys.exit(1)
-print('DMG підписано:', dmg + '.sig')
-PYEOF
+          import base64, pexpect, sys
+          dmg, password = sys.argv[1], sys.argv[2]
+          key_text = base64.b64decode(open('/tmp/sg.key').read().strip()).decode()
+          open('/tmp/sg_plain.key', 'w').write(key_text)
+          child = pexpect.spawn('minisign', ['-S', '-s', '/tmp/sg_plain.key', '-x', dmg + '.sig', '-m', dmg])
+          child.expect('[Pp]assword')
+          child.sendline(password)
+          child.expect(pexpect.EOF)
+          if child.wait() != 0:
+              sys.exit(1)
+          print('DMG підписано:', dmg + '.sig')
+          PYEOF
 
       - name: Додати DMG до релізу
         if: startsWith(github.ref, 'refs/tags/')
