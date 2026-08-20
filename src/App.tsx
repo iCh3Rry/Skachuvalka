@@ -278,7 +278,7 @@ export default function App() {
         <section className="card">
           <h2>Черга завантажень</h2>
           {queue.length === 0 && <p className="empty">Черга порожня</p>}
-          {queue.map((item) => (
+          {[...queue].reverse().map((item) => (
             <div key={item.id} className={`queue-item ${item.status}`}>
               <div className="qi-title">
                 <span className="qi-name">{item.title || item.url}</span>
