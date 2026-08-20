@@ -2,8 +2,7 @@
 // Tauri v2 backend: download queue, bundled yt-dlp management, app & yt-dlp updates.
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::PathBuf;
 use tauri::{Emitter, Manager};
 
 mod downloader;
@@ -36,6 +35,7 @@ pub struct AppState {
     pub queue: tokio::sync::Mutex<Vec<DownloadItem>>,
     pub auto_check_ytdlp: tokio::sync::Mutex<bool>,
     pub ytdlp_version: tokio::sync::Mutex<String>,
+    pub last_line: tokio::sync::Mutex<Option<String>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -49,6 +49,7 @@ pub fn run() {
             queue: tokio::sync::Mutex::new(Vec::new()),
             auto_check_ytdlp: tokio::sync::Mutex::new(true),
             ytdlp_version: tokio::sync::Mutex::new(String::new()),
+            last_line: tokio::sync::Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             downloader::start_download,
@@ -68,6 +69,9 @@ pub fn run() {
                 let state = handle.state::<AppState>();
                 if let Err(e) = yt_dlp::ensure_bundled_ytdlp(&handle).await {
                     eprintln!("yt-dlp bundle init failed: {e}");
+                }
+                if let Err(e) = yt_dlp::ensure_ffmpeg(&handle).await {
+                    eprintln!("ffmpeg bundle init failed: {e}");
                 }
                 if let Ok(version) = yt_dlp::bundled_ytdlp_version(&handle).await {
                     *state.ytdlp_version.lock().await = version;
@@ -107,5 +111,16 @@ pub fn yt_dlp_path(app: &tauri::AppHandle) -> PathBuf {
         dir.join("yt-dlp.exe")
     } else {
         dir.join("yt-dlp")
+    }
+}
+
+/// Path to the bundled ffmpeg binary in the app data directory.
+/// yt-dlp uses it automatically for muxing separate video/audio streams.
+pub fn ffmpeg_path(app: &tauri::AppHandle) -> PathBuf {
+    let dir = data_dir(app);
+    if cfg!(windows) {
+        dir.join("ffmpeg.exe")
+    } else {
+        dir.join("ffmpeg")
     }
 }

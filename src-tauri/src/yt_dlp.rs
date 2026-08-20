@@ -71,6 +71,104 @@ fn bundled_resource_path(app: &tauri::AppHandle) -> PathBuf {
         .join(name)
 }
 
+/// Name of the bundled ffmpeg resource for the current platform.
+/// For universal macOS builds the architecture is detected at runtime.
+fn bundled_ffmpeg_resource_name() -> &'static str {
+    if cfg!(windows) {
+        "ffmpeg-bundled.exe"
+    } else if cfg!(target_arch = "aarch64") {
+        "ffmpeg-bundled-arm64"
+    } else {
+        "ffmpeg-bundled-x64"
+    }
+}
+
+/// Runtime architecture check (needed for universal macOS builds where
+/// target_arch is fixed at compile time to the primary build arch).
+fn host_is_arm64() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("sysctl")
+            .arg("-n")
+            .arg("hw.optional.arm64")
+            .output()
+        {
+            return String::from_utf8_lossy(&out.stdout).trim() == "1";
+        }
+    }
+    #[cfg(all(target_arch = "x86_64", not(target_os = "macos")))]
+    {
+        if let Ok(out) = std::process::Command::new("uname")
+            .arg("-m")
+            .output()
+        {
+            return String::from_utf8_lossy(&out.stdout).trim() == "aarch64";
+        }
+    }
+    cfg!(target_arch = "aarch64")
+}
+
+/// On a universal macOS build both ffmpeg-bundled-x64 and
+/// ffmpeg-bundled-arm64 are bundled; pick the one matching the running
+/// process architecture.
+fn bundled_ffmpeg_candidate_paths(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    let base = app
+        .path()
+        .resource_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("resources");
+    let primary = base.join(bundled_ffmpeg_resource_name());
+    let mut candidates = vec![primary.clone()];
+    // Prefer the binary matching the running architecture; fall back to
+    // the other macOS slice or the Windows build (dev on different OS).
+    let preferred = if host_is_arm64() {
+        base.join("ffmpeg-bundled-arm64")
+    } else {
+        base.join("ffmpeg-bundled-x64")
+    };
+    if preferred != primary {
+        candidates.insert(0, preferred);
+    }
+    if cfg!(not(windows)) {
+        let win = base.join("ffmpeg-bundled.exe");
+        if win != primary && win.exists() {
+            candidates.push(win);
+        }
+    }
+    candidates
+}
+
+/// Ensure the data-dir copy of ffmpeg exists: copy the matching platform
+/// binary from app resources. yt-dlp picks it up automatically when it
+/// lives in the same directory (or is on PATH).
+pub async fn ensure_ffmpeg(app: &tauri::AppHandle) -> Result<(), String> {
+    let target = crate::ffmpeg_path(app);
+    if target.exists() && tokio::fs::metadata(&target).await.map_or(false, |m| m.len() > 1000) {
+        return Ok(());
+    }
+    let mut candidates = bundled_ffmpeg_candidate_paths(app);
+    // Dev builds: also try the resource_dir root (no `resources/` subdir).
+    let base = app.path().resource_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let name = bundled_ffmpeg_resource_name();
+    if base.join(name).exists() {
+        candidates.push(base.join(name));
+    }
+    let res = candidates.into_iter().find(|p| p.exists());
+    let Some(res) = res else {
+        // ffmpeg is optional: without it yt-dlp only warns about muxing.
+        eprintln!("ffmpeg resource not found, downloads will not be muxed");
+        return Ok(());
+    };
+    tokio::fs::create_dir_all(target.parent().unwrap()).await.map_err(|e| e.to_string())?;
+    tokio::fs::copy(&res, &target).await.map_err(|e| e.to_string())?;
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).await;
+    }
+    Ok(())
+}
+
 /// Ensure the data-dir copy of yt-dlp exists: copy from resources or download.
 pub async fn ensure_bundled_ytdlp(
     app: &tauri::AppHandle,
