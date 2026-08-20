@@ -177,9 +177,15 @@ jobs:
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           VER="${TAG#v}"
-          REL=$(gh release view "$TAG" --json id -q .id)
-          ASSETS=$(gh release view "$TAG" --json assets -q '.assets[] | .name + "\t" + .id')
-          SIG() { echo "$ASSETS" | grep "\1" | cut -f2; }
+          API=https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/$TAG
+          REL=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "$API" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+          echo "Release id: $REL"
+          # Видалити старий latest.json, якщо він вже є (щоб не було конфлікта імен)
+          OLD_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "$API" | python3 -c "import json,sys; d=json.load(sys.stdin); ids=[a['id'] for a in d['assets'] if a['name']=='latest.json']; print(ids[0] if ids else '')")
+          if [ -n "$OLD_ID" ]; then
+            echo "Видаляємо старий latest.json (asset id $OLD_ID)…"
+            curl -s -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/assets/$OLD_ID"
+          fi
           mkdir -p /tmp/ra
           curl -sL -o /tmp/ra/app.sig "https://github.com/iCh3Rry/Skachuvalka/releases/download/$TAG/VideoGrab.app.tar.gz.sig"
           curl -sL -o /tmp/ra/exe.sig "https://github.com/iCh3Rry/Skachuvalka/releases/download/$TAG/VideoGrab_${VER}_x64-setup.exe.sig"
@@ -204,6 +210,14 @@ jobs:
           print(json.dumps(manifest))
           PYEOF
           sed -i "s/\$(date -u +%Y-%m-%dT%H:%M:%SZ)/$(date -u +%Y-%m-%dT%H:%M:%SZ)/" /tmp/ra/latest.json
-          gh api -X POST "/repos/${GITHUB_REPOSITORY}/releases/$REL/uploads?name=latest.json" \
-            --header "Content-Type: application/octet-stream" \
-            --input /tmp/ra/latest.json
+          echo "Завантажуємо latest.json до релізу…"
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/$REL/assets?name=latest.json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @/tmp/ra/latest.json)
+          echo "upload HTTP: $HTTP"
+          if [ "$HTTP" != "201" ]; then
+            echo "Помилка завантаження latest.json (HTTP $HTTP)"
+            exit 1
+          fi
+          echo "ОК: latest.json опубліковано для версії $VER"
