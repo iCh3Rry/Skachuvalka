@@ -32,9 +32,25 @@ pub fn ytdlp_cmd(bin: &str) -> tokio::process::Command {
         // Prepend the app data directory (next to yt-dlp) so yt-dlp finds
         // the bundled ffmpeg for muxing separate video/audio streams.
         cmd.env("PATH", format!("{}:/usr/local/bin:/usr/bin:/bin", ffmpeg_dir));
-        // Home may be needed for certificate/config paths on some distros.
+        // yt-dlp needs a real environment: HOME for its cache/config, TMPDIR
+        // for temp files during ffmpeg muxing, USER/LANG for locale. Without
+        // these (env_clear) it can fail with "yt-dlp exited with an error",
+        // which happens when launched from an app bundle on macOS/Linux.
         if let Ok(home) = std::env::var("HOME") {
             cmd.env("HOME", home);
+            cmd.env("USER", std::env::var("USER").unwrap_or_else(|_| "user".into()));
+        } else {
+            cmd.env("HOME", "/tmp");
+            cmd.env("USER", "user");
+        }
+        cmd.env("TMPDIR", std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into()));
+        cmd.env("LANG", std::env::var("LANG").unwrap_or_else(|_| "en_US.UTF-8".into()));
+        // Forward the system TLS cert bundle if present (some distros).
+        if let Ok(v) = std::env::var("SSL_CERT_FILE") {
+            cmd.env("SSL_CERT_FILE", v);
+        }
+        if let Ok(v) = std::env::var("SSL_CERT_DIR") {
+            cmd.env("SSL_CERT_DIR", v);
         }
     }
     cmd
