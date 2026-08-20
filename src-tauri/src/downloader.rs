@@ -1,8 +1,7 @@
 // Download queue: each item spawns an yt-dlp subprocess and parses the
 // human-readable progress lines to report progress to the frontend.
 
-use crate::yt_dlp_path;
-use crate::{AppState, DownloadItem};
+use crate::{yt_dlp_path, AppState, DownloadItem};
 use tauri::{Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -12,16 +11,27 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 pub fn ytdlp_cmd(bin: &str) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(bin);
     cmd.env_clear();
+    // The bundled ffmpeg lives next to yt-dlp in the app data directory;
+    // putting it on PATH lets yt-dlp find it for muxing automatically.
+    let ffmpeg_dir = std::path::Path::new(bin)
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_string_lossy()
+        .to_string();
     if cfg!(windows) {
-        // Windows needs SystemRoot for TLS; keep the essentials.
+        // Windows needs SystemRoot for TLS; keep the essentials,
+        // plus the ffmpeg directory on PATH for yt-dlp muxing.
         for (k, v) in std::env::vars_os() {
             let key = k.to_string_lossy().to_uppercase();
             if key == "SYSTEMROOT" {
                 cmd.env(k, v);
             }
         }
+        cmd.env("PATH", format!("{};C:\\Windows\\System32", ffmpeg_dir));
     } else {
-        cmd.env("PATH", "/usr/local/bin:/usr/bin:/bin");
+        // Prepend the app data directory (next to yt-dlp) so yt-dlp finds
+        // the bundled ffmpeg for muxing separate video/audio streams.
+        cmd.env("PATH", format!("{}:/usr/local/bin:/usr/bin:/bin", ffmpeg_dir));
         // Home may be needed for certificate/config paths on some distros.
         if let Ok(home) = std::env::var("HOME") {
             cmd.env("HOME", home);
@@ -177,7 +187,17 @@ pub async fn start_download(
                     i.progress = 100.0;
                 } else if i.error.is_none() {
                     i.status = "error".into();
-                    i.error = Some("yt-dlp exited with an error".into());
+                    // Show the last captured yt-dlp output line as the reason.
+                    let s2 = app2.state::<AppState>();
+                    let detail = s2
+                        .last_line
+                        .try_lock()
+                        .ok()
+                        .and_then(|mut l| l.take());
+                    i.error = Some(
+                        detail
+                            .unwrap_or_else(|| "yt-dlp exited with an error".into()),
+                    );
                 }
             }
         })
@@ -217,6 +237,12 @@ async fn handle_line(
                 }
             })
             .await;
+        }
+        // Remember the last line so a detailed reason can be shown on failure.
+        if !line.is_empty() {
+            if let Ok(mut last) = state.last_line.try_lock() {
+                *last = Some(line.to_string());
+            }
         }
     } else if line.starts_with("[error]") || line.starts_with("ERROR:") {
         let msg = line
