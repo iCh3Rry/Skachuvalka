@@ -197,13 +197,14 @@ jobs:
           pip3 install -q --break-system-packages pexpect
           DMG=$(ls src-tauri/target/*/release/bundle/dmg/*.dmg | head -1)
           # SIGNING_KEY зберігається як base64 текст-format ключа rsign/minisign
-          printf '%s\n' "$SIGNING_KEY" > /tmp/sg.key
+          # minisign CLI вимагає, щоб файл ключа закінчувався на .minisign
+          printf '%s\n' "$SIGNING_KEY" > /tmp/sg.key.minisign
           # minisign запитує пароль через tty, тому відповідаємо через expect
           python3 - "$DMG" "$SIGNING_KEY_PASSWORD" <<'PYEOF'
           import base64, pexpect, sys
           dmg, password = sys.argv[1], sys.argv[2]
           # /tmp/sg.key — вже текст-format minisign секретний ключ (як у Tauri)
-          child = pexpect.spawn('minisign', ['-S', '-s', '/tmp/sg.key', '-x', dmg + '.sig', '-m', dmg])
+          child = pexpect.spawn('minisign', ['-S', '-s', '/tmp/sg.key.minisign', '-x', dmg + '.sig', '-m', dmg])
           child.expect('[Pp]assword')
           child.sendline(password)
           child.expect(pexpect.EOF)
