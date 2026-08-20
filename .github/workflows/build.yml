@@ -56,7 +56,6 @@ jobs:
       - name: Встановити залежності
         run: |
           pnpm install
-          pnpm exec tauri add updater dialog process opener
 
       - name: Вставити ключ підпису
         env:
@@ -119,7 +118,6 @@ jobs:
       - name: Встановити залежності
         run: |
           pnpm install
-          pnpm exec tauri add updater dialog process opener
 
       - name: Вставити ключ підпису
         env:
