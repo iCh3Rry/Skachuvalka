@@ -180,13 +180,10 @@ jobs:
           REL=$(gh release view "$TAG" --json id -q .id)
           ASSETS=$(gh release view "$TAG" --json assets -q '.assets[] | .name + "\t" + .id')
           SIG() { echo "$ASSETS" | grep "\1" | cut -f2; }
-          SIG_APP=$(echo "$ASSETS" | grep "\.tar\.gz\.sig$" | cut -f2)
-          EXE_SIG=$(echo "$ASSETS" | grep "x64-setup.exe.sig$" | cut -f2)
-          MSI_SIG=$(echo "$ASSETS" | grep "en-US.msi.sig$" | cut -f2)
           mkdir -p /tmp/ra
-          gh api /repos/:owner/:repo/releases/assets/$SIG_APP -H 'Accept: application/octet-stream' > /tmp/ra/app.sig
-          gh api /repos/:owner/:repo/releases/assets/$EXE_SIG -H 'Accept: application/octet-stream' > /tmp/ra/exe.sig
-          gh api /repos/:owner/:repo/releases/assets/$MSI_SIG -H 'Accept: application/octet-stream' > /tmp/ra/msi.sig
+          curl -sL -o /tmp/ra/app.sig "https://github.com/iCh3Rry/Skachuvalka/releases/download/$TAG/VideoGrab.app.tar.gz.sig"
+          curl -sL -o /tmp/ra/exe.sig "https://github.com/iCh3Rry/Skachuvalka/releases/download/$TAG/VideoGrab_${VER}_x64-setup.exe.sig"
+          curl -sL -o /tmp/ra/msi.sig "https://github.com/iCh3Rry/Skachuvalka/releases/download/$TAG/VideoGrab_${VER}_x64_en-US.msi.sig"
           python3 - "$VER" <<'PYEOF' > /tmp/ra/latest.json
           import json,sys,base64
           ver = sys.argv[1]
@@ -207,4 +204,6 @@ jobs:
           print(json.dumps(manifest))
           PYEOF
           sed -i "s/\$(date -u +%Y-%m-%dT%H:%M:%SZ)/$(date -u +%Y-%m-%dT%H:%M:%SZ)/" /tmp/ra/latest.json
-          gh release upload "$TAG" /tmp/ra/latest.json --clobber
+          gh api POST "/repos/${GITHUB_REPOSITORY}/releases/$REL/uploads?name=latest.json" \
+            --header "Content-Type: application/octet-stream" \
+            --input /tmp/ra/latest.json
