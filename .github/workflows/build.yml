@@ -197,7 +197,7 @@ jobs:
           pip3 install -q --break-system-packages pexpect
           DMG=$(ls src-tauri/target/*/release/bundle/dmg/*.dmg | head -1)
           # SIGNING_KEY зберігається як base64 текст-format ключа rsign/minisign
-          echo "$SIGNING_KEY" | base64 -d > /tmp/sg.key
+          python3 -c "import base64,sys; s=sys.argv[1].strip(); open('/tmp/sg.key','wb').write(base64.b64decode(s + '='*(-len(s)%4)))" "$SIGNING_KEY"
           # minisign запитує пароль через tty, тому відповідаємо через expect
           python3 - "$DMG" "$SIGNING_KEY_PASSWORD" <<'PYEOF'
           import base64, pexpect, sys
