@@ -123,6 +123,33 @@ export default function App() {
     };
   }, []);
 
+  async function handleCancelItem(id: string) {
+    try {
+      await invoke("cancel_download", { id });
+    } catch (e) {
+      alert(`Не вдалося скасувати: ${e}`);
+    }
+  }
+
+  async function handleRemoveItem(id: string) {
+    const item = queue.find((i) => i.id === id);
+    const isDone = item && item.status === "done";
+    if (
+      !confirm(
+        isDone
+          ? "Видалити це відео з черги та пристрою?"
+          : "Видалити цей елемент із черги?"
+      )
+    ) {
+      return;
+    }
+    try {
+      await invoke("remove_item", { id });
+    } catch (e) {
+      alert(`Не вдалося видалити: ${e}`);
+    }
+  }
+
   async function loadThumbnail(mediaId: string) {
     // yt-dlp writes the thumbnail file AFTER emitting the media id, so retry
     // a few times with backoff until it arrives or we give up.
@@ -335,6 +362,24 @@ export default function App() {
               <div className="qi-body">
                 <div className="qi-title">
                   <span className="qi-name">{item.title || item.url}</span>
+                  {(item.status === "pending" || item.status === "running") && (
+                    <button
+                      className="icon-btn cancel-btn"
+                      title="Скасувати завантаження"
+                      onClick={() => handleCancelItem(item.id)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                  {(item.status === "done" || item.status === "error") && (
+                    <button
+                      className="icon-btn delete-btn"
+                      title="Видалити зі списку та з пристрою"
+                      onClick={() => handleRemoveItem(item.id)}
+                    >
+                      🗑
+                    </button>
+                  )}
                   <span className="qi-meta">
                     {item.mode === "video" ? "відео" : "аудіо"} ·{" "}
                     {item.quality}

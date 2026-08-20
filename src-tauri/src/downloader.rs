@@ -5,6 +5,42 @@ use crate::{yt_dlp_path, AppState, DownloadItem};
 use tauri::{Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+/// Characters that are forbidden in file names on Windows (they make
+/// yt-dlp fail with "[Errno 22] Invalid argument" when building the
+/// output path from the video title).
+#[cfg(windows)]
+fn sanitize_windows_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| if "<>:\"/\\|?*".contains(c) { '_' } else { c })
+        .collect()
+}
+
+/// Sanitize the save directory path on Windows: replace forbidden
+/// filename characters so the -o template never produces an invalid path.
+/// On non-Windows platforms this is a no-op (no forbidden characters).
+#[cfg(not(windows))]
+fn sanitize_dir(dir: &str) -> String {
+    dir.to_string()
+}
+
+#[cfg(windows)]
+fn sanitize_dir(dir: &str) -> String {
+    // The directory may legally contain ':' (drive letter) and '\',
+    // only the name-portion characters matter. Keep ':' after the
+    // drive letter (single letter + colon) and backslashes.
+    let mut out = String::with_capacity(dir.len());
+    for (i, c) in dir.chars().enumerate() {
+        if i == 1 && c == ':' {
+            out.push(c);
+        } else if "<>\"/\\|?*".contains(c) {
+            out.push('_');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Spawn yt-dlp with a clean environment so the self-contained binary is not
 /// poisoned by host/launcher environment variables (e.g. PYTHONHOME injected
 /// by the AppImage runtime).
@@ -71,13 +107,27 @@ fn build_args(app: &tauri::AppHandle, item: &DownloadItem) -> Vec<String> {
         "youtube:player_client=default,web_embedded,web_safari,ios".into(),
         "--no-warnings".into(),
         "-o".into(),
-        format!("{}/%(title).120s [%(id)s].%(ext)s", item.save_dir),
+        // On Windows the title may carry forbidden filename characters
+        // (':', '<', '|', '"', '?', '*'...), which made yt-dlp fail with
+        // "[Errno 22] Invalid argument". sanitize_windows_filename
+        // rewrites them to '_' before yt-dlp expands the template
+        // characters (% is passed verbatim here, only the base path is
+        // sanitized — yt-dlp itself sanitizes template output on
+        // Windows too, but sanitizing the base path up front covers
+        // user-chosen folders that may carry odd characters).
+        format!(
+            "{}/%(title).120s [%(id)s].%(ext)s",
+            if cfg!(windows) {
+                sanitize_dir(&item.save_dir)
+            } else {
+                item.save_dir.clone()
+            }
+        ),
     ];
     // Download the video thumbnail into the app data dir so the UI can
     // display it next to the queued item. Thumbnails are keyed by id.
     if item.mode != "audio" {
         let thumb_dir = app_thumb_dir(&app);
-        args.push("--write-thumbnail".into());
         args.push("--write-info-json".into());
         args.push("-o".into());
         args.push(format!(
@@ -170,6 +220,43 @@ fn parse_progress_line(line: &str) -> Option<(f64, Option<String>)> {
     Some((pct, speed))
 }
 
+
+
+/// Remove all partial/intermediate files yt-dlp may have written for a
+/// cancelled item in the chosen save directory. yt-dlp's output template
+/// is "{save_dir}/{title} [{media_id}].{ext}", so matching on the id
+/// inside brackets reliably covers every stage: fragment files
+/// (…{id}.f123.webm), merged webm, temp files (.part) and the final mp4.
+async fn remove_partial_files_for(save_dir: &str, media_id: Option<&str>) {
+    let dir = std::path::Path::new(save_dir);
+    let mut ids = Vec::new();
+    if let Some(id) = media_id {
+        ids.push(id.to_string());
+    }
+    let patterns: Vec<String> = ids
+        .iter()
+        .map(|id| format!("[{id}]"))
+        .collect();
+    if patterns.is_empty() {
+        return;
+    }
+    let entries = match tokio::fs::read_dir(dir).await {
+        Ok(rd) => rd,
+        Err(_) => return,
+    };
+    let mut rd = entries;
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if patterns.iter().any(|p| name.contains(p)) {
+            // Never touch the thumbnail/media directory itself if it
+            // somehow ended up here; only delete files.
+            if entry.path().is_file() {
+                let _ = tokio::fs::remove_file(entry.path()).await;
+            }
+        }
+    }
+}
+
 /// Extract a title from the [info]/[Merger] style lines, e.g.
 /// [info] Title Here: Downloading 1 format(s)
 fn parse_title_line(line: &str) -> Option<String> {
@@ -184,11 +271,7 @@ fn parse_title_line(line: &str) -> Option<String> {
 
 /// Fetch video metadata (id + title) with a lightweight yt-dlp invocation
 /// so the queue can show the real title and thumbnail immediately.
-async fn fetch_metadata(
-    app: &tauri::AppHandle,
-    yt: &str,
-    url: &str,
-) -> Option<(String, String)> {
+async fn fetch_metadata(yt: &str, url: &str) -> Option<(String, String)> {
     let out = ytdlp_cmd(yt)
         .args([
             "--no-download",
@@ -248,7 +331,7 @@ pub async fn start_download(
         let s = app2.state::<AppState>();
         // Fetch metadata first so the queue shows the real title and
         // thumbnail right away (fallback: parse stdout during download).
-        if let Some((vid, title)) = fetch_metadata(&app2, &yt, &url).await {
+        if let Some((vid, title)) = fetch_metadata(&yt, &url).await {
             update_item(&app2, &s, &id, |i| {
                 i.media_id = Some(vid);
                 if i.title.is_none() {
@@ -258,7 +341,7 @@ pub async fn start_download(
             .await;
         }
         let args = build_args(&app2, &item);
-        let mut child = match ytdlp_cmd(&yt)
+        let child = match ytdlp_cmd(&yt)
             .args(&args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -277,53 +360,224 @@ pub async fn start_download(
         };
 
         let s = app2.state::<AppState>();
-        update_item(&app2, &s, &id, |i| i.status = "running".into()).await;
-
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-
-        if let Some(out) = stdout {
-            let mut reader = BufReader::new(out).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                let line = line.trim().to_string();
-                handle_line(&app2, &s, &id, &line).await;
-            }
+        {
+            let mut children = s.active_children.lock().await;
+            children.insert(id.clone(), child);
         }
-        if let Some(err_out) = stderr {
-            let mut reader = BufReader::new(err_out).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                let line = line.trim().to_string();
-                handle_line(&app2, &s, &id, &line).await;
-            }
-        }
-
-        let ok = child.wait().await.map(|x| x.success()).unwrap_or(false);
-        update_item(&app2, &s, &id, |i| {
-            if i.status != "done" {
-                if ok {
-                    i.status = "done".into();
-                    i.progress = 100.0;
-                    i.stage = "done".into();
-                } else if i.error.is_none() {
-                    i.status = "error".into();
-                    // Show the last captured yt-dlp output line as the reason.
-                    let s2 = app2.state::<AppState>();
-                    let detail = s2
-                        .last_line
-                        .try_lock()
-                        .ok()
-                        .and_then(|mut l| l.take());
-                    i.error = Some(
-                        detail
-                            .unwrap_or_else(|| "yt-dlp exited with an error".into()),
-                    );
-                }
-            }
-        })
-        .await;
+        // Wait for the process, interpret the exit, and finalize the item.
+        let _ = wait_and_finalize(&app2, &s, &id).await;
+        s.active_children.lock().await.remove(&id);
     });
 
     Ok(item0)
+}
+
+/// Wait for the yt-dlp subprocess, interpret the exit, and update the item.
+async fn wait_and_finalize(
+    app: &tauri::AppHandle,
+    s: &tauri::State<'_, AppState>,
+    id: &str,
+) -> bool {
+    let app_owned = app.clone();
+    let id_owned = id.to_string();
+    let app_spawn = app_owned.clone();
+    let id_spawn = id_owned.clone();
+    let (stdout, stderr) = {
+        let mut children = s.active_children.lock().await;
+        if let Some(c) = children.get_mut(id) {
+            (c.stdout.take(), c.stderr.take())
+        } else {
+            return false;
+        }
+    };
+    let reader_task = tokio::spawn(async move {
+        let app = app_spawn;
+        let id = id_spawn;
+        let mut readers = vec![];
+        if let Some(out) = stdout {
+            readers.push(tokio::spawn(read_lines(app.clone(), id.clone(), out)));
+        }
+        if let Some(err_out) = stderr {
+            readers.push(tokio::spawn(read_lines_err(app.clone(), id.clone(), err_out)));
+        }
+        for r in readers {
+            let _ = r.await;
+        }
+    });
+
+    // Poll the child with a short timeout so a cancelled (killed) process
+    // does not make the finalize step hang forever.
+    let ok = match timeout(
+        std::time::Duration::from_secs(30),
+        wait_child(&app_owned, s, &id_owned),
+    )
+    .await
+    {
+        Some(result) => result,
+        None => {
+            // Not finished within 30s after stdout exhausted — unlikely,
+            // treat as unfinished but keep the state already set.
+            false
+        }
+    };
+    let _ = reader_task.await;
+
+    let s = app_owned.state::<AppState>();
+    update_item(&app_owned, &s, &id_owned, |i| {
+        if i.status != "done" {
+            // A cancelled download already marks itself as `error` with a
+            // friendly message — do not overwrite it with a generic one.
+            if i.status == "error" || i.status == "cancelled" {
+                // nothing to do
+            } else if ok {
+                i.status = "done".into();
+                i.progress = 100.0;
+                i.stage = "done".into();
+            } else if i.error.is_none() {
+                i.status = "error".into();
+                let s2 = app.state::<AppState>();
+                let detail = s2
+                    .last_line
+                    .try_lock()
+                    .ok()
+                    .and_then(|mut l| l.take());
+                i.error = Some(
+                    detail.unwrap_or_else(|| "yt-dlp exited with an error".into()),
+                );
+            }
+        }
+    })
+    .await;
+    // Persist the queue (history) after the item settles.
+    let _ = save_history(app, &s).await;
+    ok
+}
+
+async fn read_lines(
+    app: tauri::AppHandle,
+    id: String,
+    stream: tokio::process::ChildStdout,
+) {
+    let s = app.state::<AppState>();
+    let mut reader = BufReader::new(stream).lines();
+    while let Ok(Some(line)) = reader.next_line().await {
+        let line = line.trim().to_string();
+        handle_line(&app, &s, &id, &line).await;
+    }
+}
+
+async fn read_lines_err(
+    app: tauri::AppHandle,
+    id: String,
+    stream: tokio::process::ChildStderr,
+) {
+    let s = app.state::<AppState>();
+    let mut reader = BufReader::new(stream).lines();
+    while let Ok(Some(line)) = reader.next_line().await {
+        let line = line.trim().to_string();
+        handle_line(&app, &s, &id, &line).await;
+    }
+}
+
+/// Wait for the process, interpreting success; returns true if the
+/// download completed normally (not killed by cancel).
+async fn wait_child(
+    app: &tauri::AppHandle,
+    s: &tauri::State<'_, AppState>,
+    id: &str,
+) -> bool {
+    // Poll the registered child until it exits or disappears (e.g. killed
+    // by cancel_download — in that case we return `false` so the caller
+    // does not mark the item as successfully done).
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        let mut children = s.active_children.lock().await;
+        if let Some(c) = children.get_mut(id) {
+            match c.try_wait() {
+                Ok(Some(status)) => return status.success(),
+                Ok(None) => continue,
+                Err(_) => return false,
+            }
+        } else {
+            return false;
+        }
+    }
+}
+
+/// A lightweight poll-with-timeout helper.
+async fn timeout<F: std::future::Future>(
+    dur: std::time::Duration,
+    fut: F,
+) -> Option<F::Output> {
+    tokio::time::timeout(dur, fut).await.ok()
+}
+
+/// Cancel a running (or pending) download: kills the yt-dlp subprocess and
+/// deletes everything yt-dlp managed to write into the save directory for
+/// this video.
+#[tauri::command]
+pub async fn cancel_download(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let item = state
+        .queue
+        .lock()
+        .await
+        .iter()
+        .find(|i| i.id == id)
+        .cloned();
+    let Some(item) = item else {
+        return Ok(());
+    };
+    // Kill the subprocess if it is still registered as active.
+    let was_running = {
+        let mut children = state.active_children.lock().await;
+        if let Some(mut child) = children.remove(&id) {
+            let _ = child.kill().await;
+            true
+        } else {
+            false
+        }
+    };
+    // Clean up any partial/intermediate output files yt-dlp wrote.
+    remove_partial_files_for(&item.save_dir, item.media_id.as_deref()).await;
+
+    update_item(&app, &state, &id, |i| {
+        if i.status == "pending" || i.status == "running" {
+            i.status = "error".into();
+            i.error = Some(if was_running {
+                "Скасування завантаження".into()
+            } else {
+                "Очікує скасування".into()
+            });
+        }
+    })
+    .await;
+    // Also remove leftover app-data media files for this video.
+    if let Some(vid) = item.media_id.as_deref() {
+        let _ = crate::cleanup_media(&app, vid).await;
+    }
+    // Sync the queue to disk (history persistence).
+    let _ = save_history(&app, &state).await;
+    Ok(())
+}
+
+/// Update a queue item and emit the change to the frontend.
+async fn update_item<F: FnOnce(&mut DownloadItem)>(
+    app: &tauri::AppHandle,
+    state: &tauri::State<'_, AppState>,
+    id: &str,
+    f: F,
+) {
+    let mut queue = state.queue.lock().await;
+    if let Some(item) = queue.iter_mut().find(|i| i.id == id) {
+        f(item);
+        let snapshot = item.clone();
+        drop(queue);
+        let _ = app.emit("item-updated", snapshot);
+    }
 }
 
 async fn handle_line(
@@ -408,19 +662,13 @@ async fn handle_line(
     }
 }
 
-async fn update_item<F: FnOnce(&mut DownloadItem)>(
+/// Persist the whole queue to disk (download history).
+async fn save_history(
     app: &tauri::AppHandle,
     state: &tauri::State<'_, AppState>,
-    id: &str,
-    f: F,
-) {
-    let mut queue = state.queue.lock().await;
-    if let Some(item) = queue.iter_mut().find(|i| i.id == id) {
-        f(item);
-        let snapshot = item.clone();
-        drop(queue);
-        let _ = app.emit("item-updated", snapshot);
-    }
+) -> Result<(), String> {
+    let queue = state.queue.lock().await;
+    crate::save_history(app, &queue).await
 }
 
 #[tauri::command]
@@ -429,17 +677,67 @@ pub async fn get_queue(state: tauri::State<'_, AppState>) -> Result<Vec<Download
 }
 
 #[tauri::command]
-pub async fn clear_queue(state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub async fn clear_queue(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
     state.queue.lock().await.clear();
+    let _ = save_history(&app, &state).await;
     Ok(())
 }
 
+/// Remove a queue item. For finished entries the actual downloaded file
+/// (and leftover thumbnails/infojson) is deleted from the device too —
+/// the single-button "delete downloaded video" feature.
 #[tauri::command]
 pub async fn remove_item(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
+    let target = state
+        .queue
+        .lock()
+        .await
+        .iter()
+        .find(|i| i.id == id)
+        .cloned();
     state.queue.lock().await.retain(|i| i.id != id);
+    let snapshot = state.queue.lock().await.clone();
+    let _ = app.emit("queue-changed", snapshot);
+    let _ = save_history(&app, &state).await;
+    if let Some(item) = target {
+        if item.status == "done" {
+            // Delete the final video/audio file. The output template is
+            // "{title} [{media_id}].{ext}", so matching the bracketed id
+            // inside the file name covers the result regardless of the
+            // title's characters.
+            if let Some(vid) = &item.media_id {
+                let pattern = format!("[{vid}]");
+                let mut rd = match tokio::fs::read_dir(&item.save_dir).await {
+                    Ok(rd) => rd,
+                    Err(_) => return Ok(()),
+                };
+                while let Ok(Some(entry)) = rd.next_entry().await {
+                    let is_file = entry
+                        .file_type()
+                        .await
+                        .map(|t| t.is_file())
+                        .unwrap_or(false);
+                    if is_file
+                        && entry
+                            .file_name()
+                            .to_string_lossy()
+                            .contains(&pattern)
+                    {
+                        let _ = tokio::fs::remove_file(entry.path()).await;
+                    }
+                }
+                // Leftover thumbnails/infojson files too.
+                let _ = crate::cleanup_media(&app, vid).await;
+            }
+        }
+    }
     Ok(())
 }
 
