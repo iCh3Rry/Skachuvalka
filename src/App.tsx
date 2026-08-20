@@ -14,6 +14,8 @@ interface DownloadItem {
   quality: string;
   save_dir: string;
   status: "pending" | "running" | "done" | "error";
+  stage: string;
+  media_id?: string;
   title?: string;
   progress: number;
   speed?: string;
@@ -44,6 +46,24 @@ function formatProgress(p: number) {
   return Number.isFinite(p) ? `${Math.round(p)}%` : "";
 }
 
+/** Human-readable stage label while a download is running. */
+function stageLabel(item: DownloadItem): string {
+  if (item.status === "pending") return "Очікує…";
+  if (item.status === "done") return "Готово";
+  if (item.status === "error") return item.error || "Помилка";
+  switch (item.stage) {
+    case "info":
+      return "Отримання інформації…";
+    case "merging":
+      return "Обробка відео…";
+    case "downloading":
+    default:
+      return "Завантаження…";
+  }
+}
+
+type SettingsTab = "updates" | "about";
+
 export default function App() {
   const [url, setUrl] = useState("");
   const [mode, setMode] = useState<Mode>("video");
@@ -52,16 +72,12 @@ export default function App() {
   const [queue, setQueue] = useState<DownloadItem[]>([]);
   const [ytdlp, setYtdlp] = useState<YtDlpStatus | null>(null);
   const [checkingAppUpdate, setCheckingAppUpdate] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<string | null>(null);
-
-  async function fetchDebug() {
-    try {
-      setDebugInfo(JSON.stringify(await invoke("ytdlp_debug_info")));
-    } catch (e) {
-      setDebugInfo(JSON.stringify({ error: String(e) }));
-    }
-  }
   const [appUpdateStatus, setAppUpdateStatus] = useState("");
+  const [appVersion, setAppVersion] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("updates");
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const [saveBusy, setSaveBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -69,6 +85,10 @@ export default function App() {
       setQueue((q) =>
         q.map((item) => (item.id === e.payload.id ? e.payload : item))
       );
+      // Thumbnail becomes available once yt-dlp writes the media id.
+      if (e.payload.media_id && !thumbnails[e.payload.media_id]) {
+        void loadThumbnail(e.payload.media_id);
+      }
     });
     listen<DownloadItem[]>("queue-changed", (e) => {
       if (alive) setQueue(e.payload);
@@ -79,6 +99,16 @@ export default function App() {
       );
     });
     listen<string>("ytdlp-updated", () => refreshYtdlp());
+    void (async () => {
+      try {
+        const dir = await invoke<string>("load_last_dir");
+        if (dir && alive) setSaveDir(dir);
+        const ver = await invoke<string>("get_app_version");
+        if (alive) setAppVersion(ver);
+      } catch (e) {
+        console.error("settings load error", e);
+      }
+    })();
     refreshYtdlp();
     // The backend copies the bundled yt-dlp and checks for updates asynchronously
     // at startup; poll briefly so the UI catches the result even if it races.
@@ -93,6 +123,19 @@ export default function App() {
     };
   }, []);
 
+  async function loadThumbnail(mediaId: string) {
+    if (thumbnails[mediaId]) return;
+    try {
+      const data = await invoke<string>("thumbnail_for", { id: mediaId });
+      setThumbnails((t) => ({
+        ...t,
+        [mediaId]: `data:image/jpeg;base64,${data}`,
+      }));
+    } catch {
+      // Thumbnail may not be ready yet; ignore.
+    }
+  }
+
   async function refreshYtdlp() {
     try {
       const status = await invoke<YtDlpStatus>("get_ytdlp_status");
@@ -104,21 +147,38 @@ export default function App() {
 
   async function handleChooseDir() {
     const dir = await openDialog({ directory: true, multiple: false });
-    if (dir) setSaveDir(Array.isArray(dir) ? dir[0] : dir);
+    if (dir) {
+      const chosen = Array.isArray(dir) ? dir[0] : dir;
+      setSaveDir(chosen);
+      try {
+        await invoke("save_last_dir", { dir: chosen });
+      } catch (e) {
+        console.error("save dir error", e);
+      }
+    }
   }
 
   async function handleDownload() {
     if (!url.trim()) return;
+    setSaveBusy(true);
     try {
+      const target = saveDir || (await homeDir()) + "Downloads";
       await invoke("start_download", {
         url: url.trim(),
         mode,
         quality,
-        saveDir: saveDir || (await homeDir()) + "Downloads",
+        saveDir: target,
       });
       setUrl("");
+      try {
+        await invoke("save_last_dir", { dir: target });
+      } catch (e) {
+        console.error("save dir error", e);
+      }
     } catch (e) {
       alert(`Помилка: ${e}`);
+    } finally {
+      setSaveBusy(false);
     }
   }
 
@@ -180,53 +240,22 @@ export default function App() {
 
   return (
     <div className="app">
-      <header>
-        <h1>VideoGrab</h1>
-        <p className="subtitle">
-          Завантажуйте відео та аудіо з YouTube за допомогою yt-dlp
-        </p>
-        <div className="header-actions">
-          <button
-            className="secondary"
-            onClick={handleCheckAppUpdate}
-            disabled={checkingAppUpdate}
-          >
-            {checkingAppUpdate ? "Перевірка..." : "Оновити програму"}
-          </button>
-          <button className="secondary" onClick={handleCheckYtdlpUpdate}>
-            Оновити yt-dlp
-          </button>
+      <header className="compact-header">
+        <div className="header-left">
+          <h1>VideoGrab</h1>
+          <p className="subtitle">Завантажуйте відео та аудіо з YouTube</p>
         </div>
-          {appUpdateStatus && <p className="status-line">{appUpdateStatus}</p>}
-        {debugInfo && (
-          <p className="version-line" style={{ color: "#a0aec0", fontSize: 11 }}>
-            DEBUG: {debugInfo}{" "}
-            <button className="link-btn" onClick={() => setDebugInfo(null)}>
-              закрити
-            </button>
-          </p>
-        )}
-        {ytdlp && (
-          <p className="version-line">
-            yt-dlp: <strong>{ytdlp.bundled_version || "не встановлено"}</strong>
-            {ytdlp.latest_version &&
-              ytdlp.latest_version !== ytdlp.bundled_version && (
-                <button className="link-btn" onClick={handleCheckYtdlpUpdate}>
-                  {" "}
-                  — доступна версія {ytdlp.latest_version}, натисніть, щоб
-                  оновити
-                </button>
-              )}{" "}
-            <button className="link-btn" onClick={() => fetchDebug()}>
-              (debug)
-            </button>
-          </p>
-        )}
+        <button
+          className="secondary settings-btn"
+          onClick={() => setSettingsOpen(true)}
+          title="Налаштування"
+        >
+          ⚙ Налаштування
+        </button>
       </header>
 
-      <main>
-        <section className="card">
-          <h2>Нове завантаження</h2>
+      <main className="compact-main">
+        <section className="card compact-card">
           <input
             className="url-input"
             placeholder="Вставте посилання YouTube..."
@@ -269,10 +298,14 @@ export default function App() {
               {saveDir ? "Змінити папку" : "Обрати папку"}
             </button>
           </div>
-          {saveDir && <p className="path-line">Зберігати в: {saveDir}</p>}
-          <button className="primary" onClick={handleDownload}>
-            Завантажити
-          </button>
+          <div className="row">
+            <p className="path-line">
+              Зберігати в: {saveDir || "Завантаження"}
+            </p>
+            <button className="primary" onClick={handleDownload} disabled={saveBusy}>
+              {saveBusy ? "Додавання…" : "Завантажити"}
+            </button>
+          </div>
         </section>
 
         <section className="card">
@@ -280,36 +313,118 @@ export default function App() {
           {queue.length === 0 && <p className="empty">Черга порожня</p>}
           {[...queue].reverse().map((item) => (
             <div key={item.id} className={`queue-item ${item.status}`}>
-              <div className="qi-title">
-                <span className="qi-name">{item.title || item.url}</span>
-                <span className="qi-meta">
-                  {item.mode === "video" ? "відео" : "аудіо"} · {item.quality}
-                </span>
+              <div className="qi-thumb">
+                {thumbnails[item.media_id || ""] ? (
+                  <img src={thumbnails[item.media_id || ""]} alt="" />
+                ) : item.media_id ? (
+                  <img
+                    src={`https://i.ytimg.com/vi/${item.media_id}/default.jpg`}
+                    alt=""
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                ) : null}
               </div>
-              <div className="qi-bar-wrap">
-                <div
-                  className="qi-bar"
-                  style={{
-                    width: `${Math.min(100, Math.max(0, item.progress))}%`,
-                  }}
-                />
-              </div>
-              <div className="qi-status">
-                <span>
-                  {formatProgress(item.progress)}
-                  {item.speed ? ` · ${item.speed}` : ""}
-                </span>
-                <span>
-                  {item.status === "pending" && "Очікує"}
-                  {item.status === "running" && "Завантаження..."}
-                  {item.status === "done" && "Готово"}
-                  {item.status === "error" && (item.error || "Помилка")}
-                </span>
+              <div className="qi-body">
+                <div className="qi-title">
+                  <span className="qi-name">{item.title || item.url}</span>
+                  <span className="qi-meta">
+                    {item.mode === "video" ? "відео" : "аудіо"} ·{" "}
+                    {item.quality}
+                  </span>
+                </div>
+                <div className="qi-bar-wrap">
+                  <div
+                    className="qi-bar"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, item.progress))}%`,
+                    }}
+                  />
+                </div>
+                <div className="qi-status">
+                  <span>
+                    {formatProgress(item.progress)}
+                    {item.speed ? ` · ${item.speed}` : ""}
+                  </span>
+                  <span>{stageLabel(item)}</span>
+                </div>
               </div>
             </div>
           ))}
         </section>
       </main>
+
+      {settingsOpen && (
+        <div className="modal-backdrop" onClick={() => setSettingsOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Налаштування</h2>
+              <button
+                className="link-btn"
+                onClick={() => setSettingsOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="tabs">
+              <button
+                className={settingsTab === "updates" ? "active" : ""}
+                onClick={() => setSettingsTab("updates")}
+              >
+                Оновлення
+              </button>
+              <button
+                className={settingsTab === "about" ? "active" : ""}
+                onClick={() => setSettingsTab("about")}
+              >
+                Про програму
+              </button>
+            </div>
+            <div className="modal-body">
+              {settingsTab === "updates" && (
+                <div className="settings-section">
+                  <p>
+                    yt-dlp: <strong>{ytdlp?.bundled_version || "…"}</strong>
+                    {ytdlp?.latest_version &&
+                      ytdlp.latest_version !== ytdlp.bundled_version && (
+                        <>
+                          {" "}
+                          — доступна версія{" "}
+                          <strong>{ytdlp.latest_version}</strong>
+                        </>
+                      )}
+                  </p>
+                  <button
+                    className="primary"
+                    onClick={handleCheckAppUpdate}
+                    disabled={checkingAppUpdate}
+                  >
+                    {checkingAppUpdate ? "Перевірка..." : "Оновити програму"}
+                  </button>
+                  <button className="primary" onClick={handleCheckYtdlpUpdate}>
+                    Оновити yt-dlp
+                  </button>
+                  {appUpdateStatus && (
+                    <p className="status-line">{appUpdateStatus}</p>
+                  )}
+                </div>
+              )}
+              {settingsTab === "about" && (
+                <div className="settings-section">
+                  <p>
+                    <strong>VideoGrab</strong>
+                    {appVersion ? ` ${appVersion}` : ""}
+                  </p>
+                  <p className="muted">
+                    Завантажуйте відео та аудіо з YouTube у форматі MP4.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

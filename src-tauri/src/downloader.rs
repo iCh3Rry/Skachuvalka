@@ -56,7 +56,7 @@ pub fn ytdlp_cmd(bin: &str) -> tokio::process::Command {
     cmd
 }
 
-fn build_args(item: &DownloadItem) -> Vec<String> {
+fn build_args(app: &tauri::AppHandle, item: &DownloadItem) -> Vec<String> {
     let mut args = vec![
         "--newline".into(),
         "--no-playlist".into(),
@@ -73,6 +73,20 @@ fn build_args(item: &DownloadItem) -> Vec<String> {
         "-o".into(),
         format!("{}/%(title).120s [%(id)s].%(ext)s", item.save_dir),
     ];
+    // Download the video thumbnail into the app data dir so the UI can
+    // display it next to the queued item. Thumbnails are keyed by id.
+    if item.mode != "audio" {
+        let thumb_dir = app_thumb_dir(&app);
+        args.push("--write-thumbnail".into());
+        args.push("--write-info-json".into());
+        args.push("-o".into());
+        args.push(format!(
+            "thumbnail:{}/%(id)s.%(ext)s",
+            thumb_dir.to_string_lossy()
+        ));
+        args.push("-o".into());
+        args.push(format!("infojson:{}", thumb_dir.to_string_lossy()));
+    }
     match item.mode.as_str() {
         "audio" => {
             let ext = match item.quality.as_str() {
@@ -110,6 +124,28 @@ fn build_args(item: &DownloadItem) -> Vec<String> {
     }
     args.push(item.url.clone());
     args
+}
+
+/// Directory where thumbnails/infojson are stored ({data_dir}/media).
+fn app_thumb_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+        .join("media")
+}
+
+/// Extract the YouTube video id from the infojson path yt-dlp prints, e.g.
+/// [info] Writing video metadata as JSON to: /path/media/dQw4w9WgXcQ.info.json
+fn parse_media_id_line(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("[info] Writing video metadata as JSON to:")?.trim();
+    let stem = std::path::Path::new(rest)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())?;
+    if stem.len() > 5 && stem.len() < 16 {
+        Some(stem)
+    } else {
+        None
+    }
 }
 
 /// Extract percent and speed from a line like:
@@ -163,6 +199,8 @@ pub async fn start_download(
         quality,
         save_dir,
         status: "pending".into(),
+        stage: "info".into(),
+        media_id: None,
         title: None,
         progress: 0.0,
         speed: None,
@@ -174,7 +212,7 @@ pub async fn start_download(
     let id = item.id.clone();
     let app2 = app.clone();
     let yt = yt_dlp_path(&app).display().to_string();
-    let args = build_args(&item);
+    let args = build_args(&app2, &item);
     tauri::async_runtime::spawn(async move {
         let mut child = match ytdlp_cmd(&yt)
             .args(&args)
@@ -221,6 +259,7 @@ pub async fn start_download(
                 if ok {
                     i.status = "done".into();
                     i.progress = 100.0;
+                    i.stage = "done".into();
                 } else if i.error.is_none() {
                     i.status = "error".into();
                     // Show the last captured yt-dlp output line as the reason.
@@ -254,6 +293,9 @@ async fn handle_line(
             update_item(app, state, id, |i| {
                 i.progress = (pct * 100.0).round();
                 i.speed = speed;
+                if i.stage == "info" {
+                    i.stage = "downloading".into();
+                }
             })
             .await;
         } else if line.contains("Destination:") {
@@ -262,14 +304,23 @@ async fn handle_line(
             update_item(app, state, id, |i| {
                 i.status = "done".into();
                 i.progress = 100.0;
+                i.stage = "done".into();
             })
             .await;
         }
-    } else if line.starts_with("[info]") || line.starts_with("[Merger]") {
+    } else if line.starts_with("[info]") {
         if let Some(title) = parse_title_line(line) {
             update_item(app, state, id, |i| {
                 if i.title.is_none() {
                     i.title = Some(title);
+                }
+            })
+            .await;
+        }
+        if let Some(vid) = parse_media_id_line(line) {
+            update_item(app, state, id, |i| {
+                if i.media_id.is_none() {
+                    i.media_id = Some(vid);
                 }
             })
             .await;
@@ -279,6 +330,20 @@ async fn handle_line(
             if let Ok(mut last) = state.last_line.try_lock() {
                 *last = Some(line.to_string());
             }
+        }
+    } else if line.starts_with("[Merger]") {
+        update_item(app, state, id, |i| {
+            i.stage = "merging".into();
+            i.progress = 100.0;
+        })
+        .await;
+        if let Some(title) = parse_title_line(line) {
+            update_item(app, state, id, |i| {
+                if i.title.is_none() {
+                    i.title = Some(title);
+                }
+            })
+            .await;
         }
     } else if line.starts_with("[error]") || line.starts_with("ERROR:") {
         let msg = line
@@ -333,3 +398,4 @@ pub async fn remove_item(
     state.queue.lock().await.retain(|i| i.id != id);
     Ok(())
 }
+
