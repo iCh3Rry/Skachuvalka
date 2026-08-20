@@ -60,7 +60,15 @@ fn build_args(item: &DownloadItem) -> Vec<String> {
     let mut args = vec![
         "--newline".into(),
         "--no-playlist".into(),
-        "--no-self-update".into(),
+        // --no-self-update was REMOVED in yt-dlp 2026.08; passing it makes
+        // yt-dlp exit with code 2 ("no such option") on newer versions,
+        // which previously surfaced as the generic
+        // "yt-dlp exited with an error" in the installed app.
+        "--no-update".into(),
+        // Fallback player clients: when the default client is blocked
+        // (bot-check / no JS runtime) yt-dlp tries these before giving up.
+        "--extractor-args".into(),
+        "youtube:player_client=default,web_embedded,web_safari,ios".into(),
         "--no-warnings".into(),
         "-o".into(),
         format!("{}/%(title).120s [%(id)s].%(ext)s", item.save_dir),
