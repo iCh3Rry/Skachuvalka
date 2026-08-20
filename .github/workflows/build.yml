@@ -173,7 +173,7 @@ jobs:
 
       - name: Створити latest.json і додати до релізу
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           VER="${TAG#v}"
