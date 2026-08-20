@@ -43,6 +43,8 @@ jobs:
 
       - name: pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 10
 
       - name: Завантажити yt-dlp та ffmpeg для Windows
         run: |
@@ -98,6 +100,8 @@ jobs:
 
       - name: pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 10
 
       - name: Завантажити yt-dlp та ffmpeg для macOS (universal)
         run: |
