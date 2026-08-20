@@ -1,0 +1,114 @@
+name: Build VideoGrab
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Завантажити yt-dlp для Windows
+        run: |
+          Invoke-WebRequest -Uri https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe -OutFile src-tauri/resources/yt-dlp-bundled.exe
+
+      - name: Встановити залежності
+        run: |
+          pnpm install
+          pnpm add @tauri-apps/plugin-updater @tauri-apps/plugin-dialog @tauri-apps/plugin-process @tauri-apps/plugin-opener
+
+      - name: Вставити ключ підпису
+        run: |
+          $ErrorActionPreference = "Stop"
+          $key = "${{ secrets.SIGNING_KEY }}"
+          $key = $key -replace "`r","" -replace "`n","" -replace "\s",""
+          Set-Content -Path "sign/key.rsa" -Value $key -NoNewline -Encoding UTF8
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.SIGNING_KEY_PASSWORD }}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          echo "TAURI_SIGNING_PRIVATE_KEY=$key" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Збірка (NSIS + MSI )
+        run: pnpm tauri build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Додати артефакти до релізу
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.exe.sig
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/msi/*.msi.sig
+
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Завантажити yt-dlp для macOS (universal)
+        run: |
+          curl -L -o src-tauri/resources/yt-dlp-bundled \
+            https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+          chmod +x src-tauri/resources/yt-dlp-bundled
+
+      - name: Встановити залежності
+        run: |
+          pnpm install
+          pnpm add @tauri-apps/plugin-updater @tauri-apps/plugin-dialog @tauri-apps/plugin-process @tauri-apps/plugin-opener
+
+      - name: Вставити ключ підпису
+        run: |
+          key="${{ secrets.SIGNING_KEY }}"
+          key="$(printf '%s' "$key" | tr -d '\n\r' )"
+          printf '%s' "$key" > sign/key.rsa
+
+      - name: Збірка DMG
+        run: pnpm tauri build --target universal-apple-darwin --no-sign
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+
+      - name: Додати DMG до релізу
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/*/release/bundle/dmg/*.dmg
+            src-tauri/target/*/release/bundle/dmg/*.dmg.sig
