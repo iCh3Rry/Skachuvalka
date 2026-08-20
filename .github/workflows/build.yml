@@ -194,6 +194,7 @@ jobs:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
         run: |
           brew install minisign
+          pip3 install -q pexpect
           DMG=$(ls src-tauri/target/*/release/bundle/dmg/*.dmg | head -1)
           # SIGNING_KEY зберігається як base64 текст-format ключа rsign/minisign
           echo "$SIGNING_KEY" | base64 -d > /tmp/sg.key
