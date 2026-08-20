@@ -202,7 +202,9 @@ jobs:
           python3 - "$DMG" "$SIGNING_KEY_PASSWORD" <<'PYEOF'
           import base64, pexpect, sys
           dmg, password = sys.argv[1], sys.argv[2]
-          key_text = base64.b64decode(open('/tmp/sg.key').read().strip()).decode()
+          # /tmp/sg.key — текст minisign ключа: 1 рядок — коментар, 2 рядок — base64 тіла
+          lines = [l for l in open('/tmp/sg.key').read().splitlines() if l.strip()]
+          key_text = lines[0] + '\n' + lines[1] + '\n'
           open('/tmp/sg_plain.key', 'w').write(key_text)
           child = pexpect.spawn('minisign', ['-S', '-s', '/tmp/sg_plain.key', '-x', dmg + '.sig', '-m', dmg])
           child.expect('[Pp]assword')
