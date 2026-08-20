@@ -209,11 +209,11 @@ jobs:
               # The build is a universal DMG, but the Tauri updater on macOS
               # (Apple Silicon) looks for darwin-aarch64-app / darwin-aarch64.
               # Expose the same universal DMG under all expected keys.
-              "darwin-aarch64-app": {"signature": sig_tr('/tmp/ra/app.sig'), "url": darwin_url},
-              "darwin-aarch64": {"signature": sig_tr('/tmp/ra/app.sig'), "url": darwin_url},
-              "darwin-universal": {"signature": sig_tr('/tmp/ra/app.sig'), "url": darwin_url},
-              "windows-x86_64": {"signature": sig_tr('/tmp/ra/exe.sig'), "url": "https://github.com/iCh3Rry/Skachuvalka/releases/download/v"+ver+"/VideoGrab_"+ver+"_x64-setup.exe"},
-              "windows-x86_64.msi": {"signature": sig_tr('/tmp/ra/msi.sig'), "url": "https://github.com/iCh3Rry/Skachuvalka/releases/download/v"+ver+"/VideoGrab_"+ver+"_x64_en-US.msi"}
+              "darwin-aarch64-app": {"signature": sig('/tmp/ra/app.sig'), "url": darwin_url},
+              "darwin-aarch64": {"signature": sig('/tmp/ra/app.sig'), "url": darwin_url},
+              "darwin-universal": {"signature": sig('/tmp/ra/app.sig'), "url": darwin_url},
+              "windows-x86_64": {"signature": sig('/tmp/ra/exe.sig'), "url": "https://github.com/iCh3Rry/Skachuvalka/releases/download/v"+ver+"/VideoGrab_"+ver+"_x64-setup.exe"},
+              "windows-x86_64.msi": {"signature": sig('/tmp/ra/msi.sig'), "url": "https://github.com/iCh3Rry/Skachuvalka/releases/download/v"+ver+"/VideoGrab_"+ver+"_x64_en-US.msi"}
             }
           }
           print(json.dumps(manifest))
