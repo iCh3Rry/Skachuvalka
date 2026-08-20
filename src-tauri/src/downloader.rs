@@ -182,6 +182,36 @@ fn parse_title_line(line: &str) -> Option<String> {
     }
 }
 
+/// Fetch video metadata (id + title) with a lightweight yt-dlp invocation
+/// so the queue can show the real title and thumbnail immediately.
+async fn fetch_metadata(
+    app: &tauri::AppHandle,
+    yt: &str,
+    url: &str,
+) -> Option<(String, String)> {
+    let out = ytdlp_cmd(yt)
+        .args([
+            "--no-download",
+            "--print",
+            "%(id)s\t%(title)s",
+            url,
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .await
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&out.stdout);
+    let (first, title) = line.trim().split_once('\t')?;
+    if first.len() < 5 {
+        return None;
+    }
+    Some((first.to_string(), title.to_string()))
+}
+
 /// Start a new download; the work happens in a spawned task so the UI stays responsive.
 #[tauri::command]
 pub async fn start_download(
@@ -212,8 +242,22 @@ pub async fn start_download(
     let id = item.id.clone();
     let app2 = app.clone();
     let yt = yt_dlp_path(&app).display().to_string();
-    let args = build_args(&app2, &item);
+    // Keep a copy to return from the command; the spawn takes ownership.
+    let item0 = item.clone();
     tauri::async_runtime::spawn(async move {
+        let s = app2.state::<AppState>();
+        // Fetch metadata first so the queue shows the real title and
+        // thumbnail right away (fallback: parse stdout during download).
+        if let Some((vid, title)) = fetch_metadata(&app2, &yt, &url).await {
+            update_item(&app2, &s, &id, |i| {
+                i.media_id = Some(vid);
+                if i.title.is_none() {
+                    i.title = Some(title);
+                }
+            })
+            .await;
+        }
+        let args = build_args(&app2, &item);
         let mut child = match ytdlp_cmd(&yt)
             .args(&args)
             .stdout(std::process::Stdio::piped())
@@ -279,7 +323,7 @@ pub async fn start_download(
         .await;
     });
 
-    Ok(item)
+    Ok(item0)
 }
 
 async fn handle_line(

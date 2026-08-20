@@ -86,7 +86,7 @@ export default function App() {
         q.map((item) => (item.id === e.payload.id ? e.payload : item))
       );
       // Thumbnail becomes available once yt-dlp writes the media id.
-      if (e.payload.media_id && !thumbnails[e.payload.media_id]) {
+      if (e.payload.media_id) {
         void loadThumbnail(e.payload.media_id);
       }
     });
@@ -124,15 +124,21 @@ export default function App() {
   }, []);
 
   async function loadThumbnail(mediaId: string) {
-    if (thumbnails[mediaId]) return;
-    try {
-      const data = await invoke<string>("thumbnail_for", { id: mediaId });
-      setThumbnails((t) => ({
-        ...t,
-        [mediaId]: `data:image/jpeg;base64,${data}`,
-      }));
-    } catch {
-      // Thumbnail may not be ready yet; ignore.
+    // yt-dlp writes the thumbnail file AFTER emitting the media id, so retry
+    // a few times with backoff until it arrives or we give up.
+    const delays = [1500, 3000, 6000, 12000, 25000];
+    for (const delay of delays) {
+      try {
+        const data = await invoke<string>("thumbnail_for", { id: mediaId });
+        setThumbnails((t) => ({
+          ...t,
+          [mediaId]: `data:image/jpeg;base64,${data}`,
+        }));
+        return;
+      } catch {
+        // Thumbnail not ready yet; wait and try again.
+      }
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
 
