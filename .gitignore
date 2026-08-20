@@ -1,2 +1,8 @@
 sign/
 src-tauri/target/
+node_modules/
+dist/
+src-tauri/target/
+.env
+*.log
+.DS_Store
