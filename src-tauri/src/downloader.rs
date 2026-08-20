@@ -86,18 +86,27 @@ fn build_args(item: &DownloadItem) -> Vec<String> {
             args.push("0".into());
         }
         _ => match item.quality.as_str() {
+            // Prefer mp4 containers (h264 video + mp4a audio) so the
+            // result is a playable MP4 rather than webm/opus, which the
+            // user could not open.
             "1080" | "720" | "480" => {
                 args.push("-f".into());
                 args.push(format!(
-                    "bv*[height<={}]+ba/b[height<={}]/b*+ba/b",
-                    item.quality, item.quality
+                    "bv*[height<={}][vcodec~=avc]+ba*[acodec~=mp4]/bv*[height<={}]/b[height<={}]/b*+ba/b",
+                    item.quality, item.quality, item.quality
                 ));
             }
             _ => {
                 args.push("-f".into());
-                args.push("bv*+ba/b".into());
+                args.push("bv*[vcodec~=avc]+ba*[acodec~=mp4]/bv*+ba/b".into());
             }
-        },
+        }
+    }
+    // Remux everything into mp4 for video modes, so the user always
+    // ends up with exactly one .mp4 file.
+    if item.mode != "audio" {
+        args.push("--merge-output-format".into());
+        args.push("mp4".into());
     }
     args.push(item.url.clone());
     args
@@ -110,6 +119,9 @@ fn parse_progress_line(line: &str) -> Option<(f64, Option<String>)> {
     let after = line.strip_prefix("[download]")?;
     let rest = after.trim();
     let pct: f64 = rest.split('%').next()?.trim().parse().ok()?;
+    // Clamp to a sane range: yt-dlp occasionally emits raw chunk
+    // progress lines that can look like >100% in buffered reads.
+    let pct = pct.max(0.0).min(100.0);
     let mut speed = None;
     if let Some(at_pos) = rest.find("at ") {
         let after_at = rest[at_pos + 3..].trim();
