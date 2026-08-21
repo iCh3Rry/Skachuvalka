@@ -250,6 +250,25 @@ button.secondary:disabled {
   color: var(--error);
 }
 
+/* v1.0.25: action buttons pinned to the right edge of the card */
+.qi-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+/* v1.0.25: big one-click paste-and-download button */
+.paste-btn {
+  width: 100%;
+  margin-top: 0;
+  margin-bottom: 6px;
+  padding: 12px;
+  font-size: 15px;
+}
+
 .qi-bar-wrap {
   height: 6px;
   background: var(--bar-bg);

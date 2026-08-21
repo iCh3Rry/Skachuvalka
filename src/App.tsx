@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { homeDir } from "@tauri-apps/api/path";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { readText as readClipboard } from "@tauri-apps/plugin-clipboard-manager";
 import { check as checkForUpdates } from "@tauri-apps/plugin-updater";
 import "./App.css";
 
@@ -191,13 +192,48 @@ export default function App() {
     }
   }
 
-  async function handleDownload() {
-    if (!url.trim()) return;
+  /** Try to extract a YouTube url from clipboard text. */
+  function extractUrl(text: string): string | null {
+    // Matches youtube.com/watch?v=..., youtu.be/..., youtube.com/shorts/...
+    const m = text.match(
+      /https?:\/\/(?:www\.)?youtube\.com\/(?:watch\?v=|shorts\/)([\w-]+)|https?:\/\/(?:www\.)?youtu\.be\/([\w-]+)/
+    );
+    if (m) return text.match(/https?:\/\S+/)?.[0] || null;
+    // Accept any youtube-ish link typed directly.
+    if (/youtube|youtu\.be|invidious/i.test(text)) {
+      const link = text.match(/https?:\/\S+/)?.[0];
+      if (link) return link;
+    }
+    return null;
+  }
+
+  /** One-click action: paste the link from the clipboard and start the
+   *  download immediately. Falls back to the manually typed url. */
+  async function handlePasteAndDownload() {
+    let link = url.trim();
+    if (!link) {
+      try {
+        const clip = await readClipboard();
+        const found = extractUrl(clip ?? "");
+        if (found) link = found;
+      } catch {
+        // Clipboard unavailable (e.g. sandboxed) — continue with empty link.
+      }
+    }
+    if (!link) {
+      alert("У буфері обміну немає посилання. Скопіюйте посилання YouTube (Ctrl+C / Cmd+C) і натисніть ще раз.");
+      return;
+    }
+    setUrl(link);
+    await startDownloadWithUrl(link);
+  }
+
+  async function startDownloadWithUrl(link: string) {
     setSaveBusy(true);
     try {
       const target = saveDir || (await homeDir()) + "Downloads";
       await invoke("start_download", {
-        url: url.trim(),
+        url: link,
         mode,
         quality,
         saveDir: target,
@@ -213,6 +249,11 @@ export default function App() {
     } finally {
       setSaveBusy(false);
     }
+  }
+
+  async function handleDownload() {
+    if (!url.trim()) return;
+    await startDownloadWithUrl(url.trim());
   }
 
   async function handleCheckAppUpdate() {
@@ -289,12 +330,17 @@ export default function App() {
 
       <main className="compact-main">
         <section className="card compact-card">
-          <input
-            className="url-input"
-            placeholder="Вставте посилання YouTube..."
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
+          <button
+            className="paste-btn primary"
+            onClick={handlePasteAndDownload}
+            disabled={saveBusy}
+            title="Вставити посилання з буфера обміну та завантажити"
+          >
+            {saveBusy ? "Додавання…" : "📋 Вставити посилання та завантажити"}
+          </button>
+          <p className="path-line">
+            або введіть посилання вручну і натисніть Enter ↓
+          </p>
           <div className="row">
             <div className="seg">
               <button
@@ -335,7 +381,7 @@ export default function App() {
             <p className="path-line">
               Зберігати в: {saveDir || "Завантаження"}
             </p>
-            <button className="primary" onClick={handleDownload} disabled={saveBusy}>
+            <button className="secondary" onClick={handleDownload} disabled={saveBusy}>
               {saveBusy ? "Додавання…" : "Завантажити"}
             </button>
           </div>
@@ -362,24 +408,6 @@ export default function App() {
               <div className="qi-body">
                 <div className="qi-title">
                   <span className="qi-name">{item.title || item.url}</span>
-                  {(item.status === "pending" || item.status === "running") && (
-                    <button
-                      className="icon-btn cancel-btn"
-                      title="Скасувати завантаження"
-                      onClick={() => handleCancelItem(item.id)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                  {(item.status === "done" || item.status === "error") && (
-                    <button
-                      className="icon-btn delete-btn"
-                      title="Видалити зі списку та з пристрою"
-                      onClick={() => handleRemoveItem(item.id)}
-                    >
-                      🗑
-                    </button>
-                  )}
                   <span className="qi-meta">
                     {item.mode === "video" ? "відео" : "аудіо"} ·{" "}
                     {item.quality}
@@ -400,6 +428,26 @@ export default function App() {
                   </span>
                   <span>{stageLabel(item)}</span>
                 </div>
+              </div>
+              <div className="qi-actions">
+                {(item.status === "pending" || item.status === "running") && (
+                  <button
+                    className="icon-btn cancel-btn"
+                    title="Скасувати завантаження"
+                    onClick={() => handleCancelItem(item.id)}
+                  >
+                    ✕
+                  </button>
+                )}
+                {(item.status === "done" || item.status === "error") && (
+                  <button
+                    className="icon-btn delete-btn"
+                    title="Видалити зі списку та з пристрою"
+                    onClick={() => handleRemoveItem(item.id)}
+                  >
+                    ❌
+                  </button>
+                )}
               </div>
             </div>
           ))}
