@@ -316,22 +316,18 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="compact-header">
-        <div className="header-left">
-          <h1>VideoGrab</h1>
-          <p className="subtitle">Завантажуйте відео та аудіо з YouTube</p>
-        </div>
-        <button
-          className="secondary settings-btn"
-          onClick={() => setSettingsOpen(true)}
-          title="Налаштування"
-        >
-          ⚙ Налаштування
-        </button>
-      </header>
-
       <main className="compact-main">
         <section className="card compact-card">
+          <div className="card-head">
+            <span className="card-label">VideoGrab</span>
+            <button
+              className="gear-btn"
+              onClick={() => setSettingsOpen(true)}
+              title="Налаштування"
+            >
+              ⚙
+            </button>
+          </div>
           <div className="url-row">
             <input
               className="url-input"
