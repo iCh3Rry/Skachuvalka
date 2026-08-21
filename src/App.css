@@ -95,6 +95,47 @@ header h1 {
   font-size: 14px;
   margin-bottom: 12px;
 }
+/* v1.0.26: compact layout — input row + options row */
+.url-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.url-row .url-input {
+  margin-bottom: 0;
+}
+button.dl-btn {
+  flex-shrink: 0;
+  padding: 10px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+button.dl-btn:hover {
+  background: #3a75e0;
+}
+button.dl-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.opts-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+button.change-dir-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  text-decoration: underline;
+  font-size: 12.5px;
+  padding: 4px 6px;
+}
 
 .url-input:focus {
   outline: 2px solid var(--accent);
@@ -260,14 +301,6 @@ button.secondary:disabled {
   flex-shrink: 0;
 }
 
-/* v1.0.25: big one-click paste-and-download button */
-.paste-btn {
-  width: 100%;
-  margin-top: 0;
-  margin-bottom: 6px;
-  padding: 12px;
-  font-size: 15px;
-}
 
 .qi-bar-wrap {
   height: 6px;
@@ -327,19 +360,6 @@ button.secondary:disabled {
   padding: 12px !important;
   margin-bottom: 12px !important;
 }
-
-.compact-card .url-input {
-  margin-bottom: 8px;
-}
-
-.compact-card .row {
-  margin-bottom: 8px;
-}
-
-.compact-card button.primary {
-  margin-top: 0;
-}
-
 .compact-card .path-line {
   margin: 0;
   flex: 1;

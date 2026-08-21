@@ -207,21 +207,20 @@ export default function App() {
     return null;
   }
 
-  /** One-click action: paste the link from the clipboard and start the
-   *  download immediately. Falls back to the manually typed url. */
+  /** Empty field: paste the link from the clipboard and start the
+   *  download immediately. */
   async function handlePasteAndDownload() {
-    let link = url.trim();
-    if (!link) {
-      try {
-        const clip = await readClipboard();
-        const found = extractUrl(clip ?? "");
-        if (found) link = found;
-      } catch {
-        // Clipboard unavailable (e.g. sandboxed) — continue with empty link.
-      }
+    let link: string | null = null;
+    try {
+      const clip = await readClipboard();
+      link = extractUrl(clip ?? "");
+    } catch {
+      // Clipboard unavailable (e.g. sandboxed) — continue with null.
     }
     if (!link) {
-      alert("У буфері обміну немає посилання. Скопіюйте посилання YouTube (Ctrl+C / Cmd+C) і натисніть ще раз.");
+      alert(
+        "У буфері обміну немає посилання. Скопіюйте посилання YouTube (Ctrl+C / Cmd+C) і натисніть ще раз."
+      );
       return;
     }
     setUrl(link);
@@ -252,8 +251,11 @@ export default function App() {
   }
 
   async function handleDownload() {
-    if (!url.trim()) return;
-    await startDownloadWithUrl(url.trim());
+    if (url.trim()) {
+      await startDownloadWithUrl(url.trim());
+      return;
+    }
+    await handlePasteAndDownload();
   }
 
   async function handleCheckAppUpdate() {
@@ -330,18 +332,26 @@ export default function App() {
 
       <main className="compact-main">
         <section className="card compact-card">
-          <button
-            className="paste-btn primary"
-            onClick={handlePasteAndDownload}
-            disabled={saveBusy}
-            title="Вставити посилання з буфера обміну та завантажити"
-          >
-            {saveBusy ? "Додавання…" : "📋 Вставити посилання та завантажити"}
-          </button>
-          <p className="path-line">
-            або введіть посилання вручну і натисніть Enter ↓
-          </p>
-          <div className="row">
+          <div className="url-row">
+            <input
+              className="url-input"
+              placeholder="Вставте посилання YouTube..."
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleDownload();
+              }}
+            />
+            <button
+              className="dl-btn primary"
+              onClick={handleDownload}
+              disabled={saveBusy}
+              title="Якщо поле порожнє — бере посилання з буфера обміну"
+            >
+              {saveBusy ? "Додавання…" : "Завантажити"}
+            </button>
+          </div>
+          <div className="opts-row">
             <div className="seg">
               <button
                 className={mode === "video" ? "active" : ""}
@@ -373,18 +383,11 @@ export default function App() {
                 </option>
               ))}
             </select>
-            <button className="secondary" onClick={handleChooseDir}>
+            <button className="change-dir-link" onClick={handleChooseDir}>
               {saveDir ? "Змінити папку" : "Обрати папку"}
             </button>
           </div>
-          <div className="row">
-            <p className="path-line">
-              Зберігати в: {saveDir || "Завантаження"}
-            </p>
-            <button className="secondary" onClick={handleDownload} disabled={saveBusy}>
-              {saveBusy ? "Додавання…" : "Завантажити"}
-            </button>
-          </div>
+          <p className="path-line">Зберігати в: {saveDir || "Завантаження"}</p>
         </section>
 
         <section className="card">
